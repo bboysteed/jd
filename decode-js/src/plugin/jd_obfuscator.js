@@ -288,12 +288,16 @@ function decodeGlobal(ast) {
             // let vd = path.findParent(p=>p.isVariableDeclarator())
             let fun_in_vm = virtualGlobalEval(`${name}.toString()`)
             try {
-                virtualGlobalEval(all_collect_codes.join(";"))
+                // virtualGlobalEval(all_collect_codes.join(";"))
                 // 运行成功则说明函数为直接调用并返回字符串
                 let new_str = virtualGlobalEval(old_call)
                 console.log(`【fun call】map: ${old_call} -> ${new_str}`)
                 call_dict[old_call] = new_str
             } catch (e) {
+                // if (`${old_call}`.indexOf("s(-212, 172, 244, -264)")!==-1){
+                //    console.log(all_collect_codes.join(";"))
+                // }
+
                 // 运行失败则说明函数为其它混淆函数的子函数  待待会加入了套用解密函数的外壳函数后，重新解密进入try分支，成功eval
                 console.log(`【fun call】sub: ${old_call} == 父函数为${path.parentPath} == 调用 ${fun_in_vm}失败，错误原因为:${e}`)
             }
@@ -330,8 +334,9 @@ function decodeGlobal(ast) {
             }
             let name = path.node.id.name
             let t = generator(path.node, {minified: true}).code
-            if (collect_names.indexOf(name) === -1) {
-                collect_codes.push(t)
+            if (all_de_funs.indexOf(name) === -1) {
+                all_de_funs.push(name)
+                // collect_codes.push(t)
                 collect_names.push(name)
             } else {
                 console.log(`err: redef ${name}`)
@@ -342,7 +347,10 @@ function decodeGlobal(ast) {
                 let t = generator(path.node, {minified: true}).code
                 collect_codes.push(t)
                 collect_names.push(`${name}_${rename_time}`)
+                all_de_funs.push(`${name}_${rename_time}`)
+
             }
+            // path.remove()
         }
     }
 
@@ -393,15 +401,16 @@ function decodeGlobal(ast) {
         }
         console.log(generator(path.node,{minimal:false}).code)
         try {
-            virtualGlobalEval(all_collect_codes.join(";"))
-            let resultString = virtualGlobalEval("(function(){return "+path + ""+"})()")
+            // virtualGlobalEval(all_collect_codes.join(";"))
+            // let resultString = virtualGlobalEval("(function(){return "+path + ""+"})()")
+            let resultString = virtualGlobalEval( "(function(){return "+path + ""+"})()")
             // console.log("resultString -> ", resultString)
             call_dict[path + ""] = resultString
             console.log("【sequence】map ",path + "",resultString)
         } catch (e) {
 
             console.log(`执行 ${"(function(){"+path + ""+"})()"}失败，原因为${e}`)
-            console.log(all_collect_codes)
+
         }
 
         // let constValue = virtualGlobalEval(path+"")
@@ -439,14 +448,10 @@ function decodeGlobal(ast) {
 
 
 
+
     while (collect_names.length) {
-        // 查找已收集混淆函数的调用并建立替换关系
-        //like
-        traverse(ast, {CallExpression: do_parse_value})
-        // 将sequenceExpression【(n = -453, e = -467, nw(e - -792, n))】也循环迭代建立替换关系
-        traverse(ast, {SequenceExpression: replaceSequenceExpressionWithConst})
         // 删除被使用过的定义
-        traverse(ast, { FunctionDeclaration: do_collect_remove })
+        // traverse(ast, { FunctionDeclaration: do_collect_remove })
         // traverse(ast, { VariableDeclarator: do_collect_remove })
         // traverse(ast, { AssignmentExpression: do_collect_remove })
         // 收集所有调用已收集混淆函数的混淆函数
@@ -456,10 +461,10 @@ function decodeGlobal(ast) {
         // 2023.8.6 对于京东来讲，没有对解密函数或者解密函数的壳函数进行新的赋值和重定义
         // traverse(ast, { VariableDeclarator: do_collect_var })
         // traverse(ast, { AssignmentExpression: do_collect_var })
-        all_de_funs = all_de_funs.concat(collect_names)
+        // all_de_funs = all_de_funs.concat(collect_names)
         // 执行找到的函数
         all_collect_codes = all_collect_codes.concat(collect_codes)
-        virtualGlobalEval(collect_codes.join(';'))
+
     }
 
     // 替换混淆函数
@@ -471,7 +476,18 @@ function decodeGlobal(ast) {
         }
     }
 
+    console.log(all_de_funs,all_collect_codes)
+    //运行收集到的代码
+    virtualGlobalEval(all_collect_codes.join(';'))
+
+    // 查找已收集混淆函数的调用并建立替换关系
+    traverse(ast, {CallExpression: do_parse_value})
+
+    // 将sequenceExpression【(n = -453, e = -467, nw(e - -792, n))】也循环迭代建立替换关系
+    traverse(ast, {SequenceExpression: replaceSequenceExpressionWithConst})
+
     traverse(ast, {CallExpression: do_replace, SequenceExpression: do_replace})
+
     return true
 }
 
