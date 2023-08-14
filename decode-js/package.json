@@ -1,6 +1,6 @@
 {
   "name": "decode-js",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "deob": "node src/main.js -t obfuscator",
     "deso": "node src/main.js -t sojson",
@@ -12,6 +12,7 @@
     "@babel/parser": "^7.17.10",
     "@babel/traverse": "^7.17.10",
     "@babel/types": "^7.17.10",
+    "crypto-js": "^4.1.1",
     "eslint": "^8.23.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-prettier": "^4.2.1",

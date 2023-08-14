@@ -285,7 +285,7 @@ function decodeGlobal(ast) {
     if (path.node.callee && all_de_funs.indexOf(name) !== -1) {
       let old_call = path + ''
       // if (path.parentPath.isFunction()){return}
-      // let vd = path.findParent(p=>p.isVariableDeclarator())
+      // let vd = path.find(p=>p.isVariableDeclarator())
       let fun_in_vm = virtualGlobalEval(`${name}.toString()`)
       try {
         // virtualGlobalEval(all_collect_codes.join(";"))
@@ -299,6 +299,9 @@ function decodeGlobal(ast) {
         // }
 
         // 运行失败则说明函数为其它混淆函数的子函数  待待会加入了套用解密函数的外壳函数后，重新解密进入try分支，成功eval
+        if ((path.parentPath + "").indexOf('return') !== -1) {
+          return
+        }
         console.log(`【fun call】sub: ${old_call} == 父函数为${path.parentPath} == 调用 ${fun_in_vm}失败，错误原因为:${e}`)
       }
     }
@@ -363,14 +366,13 @@ function decodeGlobal(ast) {
 
   //重开进行rename后的替换
   function collect_final_func(path) {
-      let name = path.node.id.name
-      if (all_de_funs.indexOf(name) !== -1 ) {
-        final_de_funs.push(name)
-        let t = generator(path.node, {minified: true}).code
-        final_codes.push(t)
-      }
+    let name = path.node.id.name
+    if (all_de_funs.indexOf(name) !== -1) {
+      final_de_funs.push(name)
+      let t = generator(path.node, {minified: true}).code
+      final_codes.push(t)
     }
-
+  }
 
 
   let tmpObjxInit = {}
@@ -406,6 +408,9 @@ function decodeGlobal(ast) {
       eval(`tmpObjxInit = ${(path + "").substring(3)}`)
       let referencedNodePaths = path.getFunctionParent().scope.getBinding(valueName).referencePaths
       for (let referencedNodePath of referencedNodePaths) {
+        if (!t.isIdentifier(referencedNodePath.parent.property)) {
+          return
+        }
         let oxPropertyName = referencedNodePath.parent.property.name
         referencedNodePath.parentPath.replaceWith(t.numericLiteral(tmpObjxInit[oxPropertyName]))
       }
@@ -415,20 +420,36 @@ function decodeGlobal(ast) {
 
   function replaceSequenceExpressionWithConst(path) {
     // console.log("SequencePath -> ", path + "")
-    if (path.node.expressions.length !== 3) {
+    if (path.node.expressions.length !== 3 && path.node.expressions.length !== 4) {
       return
     }
-    console.log(generator(path.node, {minimal: false}).code)
+    if (!t.isMemberExpression(path.parentPath)){
+      return;
+    }
+    console.log("【replaceSequence】准备替换的代码：",generator(path.node, {minimal: false}).code)
+    console.log("【replaceSequence】代码的sequence表达式长度为：",path.node.expressions.length)
+    console.log("【replaceSequence】代码的sequence父级的类型为：",path.parentPath.type)
+    let declaretion = ""
+    let declaretionsArr = []
+    for (let i = 0; i < path.node.expressions.length - 1; i++) {
+      let variable = path.node.expressions[i].left.name
+      if (!variable) {
+        return;
+      }
+      declaretionsArr.push(`let ${variable}`)
+    }
+
+    declaretion = declaretionsArr.join(";")+";"
+    let jsCode = "(function(){" + declaretion + "return " + path + "" + "})()"
+    console.log("【replaceSequence】virtualGlobalEval执行：", jsCode)
     try {
-      // virtualGlobalEval(all_collect_codes.join(";"))
-      // let resultString = virtualGlobalEval("(function(){return "+path + ""+"})()")
-      let resultString = virtualGlobalEval("(function(){return " + path + "" + "})()")
+      let resultString = virtualGlobalEval(jsCode)
       // console.log("resultString -> ", resultString)
       call_dict[path + ""] = resultString
-      console.log("【sequence】map ", path + "", resultString)
+      console.log("【replaceSequence】map ", path + "", resultString)
     } catch (e) {
 
-      console.log(`执行 ${"(function(){" + path + "" + "})()"}失败，原因为${e}`)
+      console.log(`【replaceSequence】执行 ${jsCode}失败，原因为${e}`)
 
     }
 
@@ -471,12 +492,12 @@ function decodeGlobal(ast) {
     traverse(ast, {FunctionDeclaration: do_collect_func})
   }
 
-  console.log("初步收集的：",all_de_funs, all_collect_codes)
+  console.log("初步收集的：", all_de_funs, all_collect_codes)
 
   let final_codes = []
   let final_de_funs = []
   // while(all_de_funs.length - 1 !== final_de_funs.length){
-    // console.log(all_de_funs.length - 1 ,final_de_funs.length)
+  // console.log(all_de_funs.length - 1 ,final_de_funs.length)
   traverse(ast, {FunctionDeclaration: collect_final_func})
   // }
 
@@ -1017,20 +1038,23 @@ function cleanSwitchCode(path) {
 
 
   //将方法集合对象添加到vm2
-  path.getAllPrevSiblings().forEach((pre_path) => {
-    const {declarations} = pre_path.node
-    if (!declarations) {
-      return
-    }
-    for (let declaration of declarations) {
-      if (declaration.init.type === "ObjectExpression") {
-
-        let code = 'var ' + generator(declaration, {minified: true}).code
-        console.log(`[debug] 添加对象:${code}`)
-        virtualGlobalEval(code)
-      }
-    }
-  })
+  // path.getAllPrevSiblings().forEach((pre_path) => {
+  //   const {declarations} = pre_path.node
+  //   if (!declarations) {
+  //     return
+  //   }
+  //   for (let declaration of declarations) {
+  //     if (!declaration.init || !declaration.init.type) {
+  //       return
+  //     }
+  //     if (declaration.init.type === "ObjectExpression") {
+  //
+  //       let code = 'var ' + generator(declaration, {minified: true}).code
+  //       console.log(`[debug] 添加对象:${code}`)
+  //       virtualGlobalEval(code)
+  //     }
+  //   }
+  // })
   //获取cases的执行顺序
   path.getAllPrevSiblings().forEach((pre_path) => {
     const {declarations} = pre_path.node
@@ -1039,9 +1063,9 @@ function cleanSwitchCode(path) {
     }
     let {id, init} = declarations[0]
     if (arrName === id.name) {
-      console.log(`[debug] 准备执行:${init.callee.object.object.name + "." + init.callee.object.property.name}`)
-      let res = virtualGlobalEval(init.callee.object.object.name + "." + init.callee.object.property.name)
-      arr = res.split('|')
+      console.log(`[debug] 准备执行:${init.callee.object.value + "." + init.callee.property.name}('|')`)
+      // let res = virtualGlobalEval(init.callee.object.object.name + "." + init.callee.object.property.name)
+      arr = init.callee.object.value.split("|")
       pre_path.remove()
     }
     if (argName === id.name) {
@@ -1087,8 +1111,8 @@ function cleanSwitchCode(path) {
 
 function cleanDeadCode(ast) {
   traverse(ast, {UnaryExpression: purifyBoolean})
-  traverse(ast, {IfStatement: cleanIFCode})
-  traverse(ast, {ConditionalExpression: cleanIFCode})
+  // traverse(ast, {IfStatement: cleanIFCode})
+  // traverse(ast, {ConditionalExpression: cleanIFCode})
   traverse(ast, {ForStatement: {exit: cleanSwitchCode}})
   return ast
 }
@@ -1195,6 +1219,24 @@ function purifyCode(ast) {
       }
     },
   })
+  // 删除未使用的方法
+  // traverse(ast, {
+  //   FunctionDeclaration: (path) => {
+  //     const {node, scope} = path
+  //     const name = node.id.name
+  //     const binding = scope.getBinding(name)
+  //     if (!binding || binding.referenced || !binding.constant) {
+  //       return
+  //     }
+  //     const pathpp = path.parentPath.parentPath
+  //     console.log(`未引用变量: ${name}`)
+  //     if (path.parentPath.node.declarations.length === 1) {
+  //       path.parentPath.remove()
+  //     } else {
+  //       path.remove()
+  //     }
+  //   },
+  // })
 
   // 替换索引器
   function FormatMember(path) {
@@ -1394,8 +1436,8 @@ export default function (jscode) {
   decodeGlobal(ast)
   // console.log('处理代码块加密...')
   // ast = decodeCodeBlock(ast)
-  console.log('清理死代码...')
-  ast = cleanDeadCode(ast)
+  // console.log('清理死代码...')
+  // ast = cleanDeadCode(ast)
   // 刷新代码
   ast = parse(
     generator(ast, {
@@ -1403,11 +1445,11 @@ export default function (jscode) {
       jsescOption: {minimal: false},
     }).code
   )
-  // console.log('提高代码可读性...')
-  // ast = purifyCode(ast)
+  console.log('提高代码可读性...')
+  ast = purifyCode(ast)
   // console.log('解除环境限制...')
   // ast = unlockEnv(ast)
-  console.log('净化完成')
+  // console.log('净化完成')
   let {code} = generator(ast, {
     comments: false,
     jsescOption: {minimal: false},
